@@ -1,0 +1,281 @@
+{include file="common/header" title="欢迎您 - 文本关键词标注系统" /}
+<style>
+    .header .logo {
+        display: flex;
+        flex-display: row;
+        align-items: center;
+    }
+
+    .header .logo .logo-icon {
+        width: 40px;
+        height: 40px;
+        margin-right: 5px;
+    }
+
+    .header .logo .logo-icon img {
+        width: 100%;
+        height: 100%;
+    }
+
+    .header .logo .logo-text {
+        font-size: 20px;
+        color: #409EFF;
+    }
+
+    .statics-info {
+        margin-bottom: 20px;
+    }
+
+    .statics-card-title {
+        margin-bottom: 20px;
+    }
+
+    .statics-card-count {
+        font-size: 30px;
+        color: #409EFF;
+    }
+
+    .statics-card-count-total {
+        font-size: 15px;
+        color: #909399;
+    }
+
+    .dataset-tab {
+        margin-bottom: 20px;
+    }
+
+    .dataset-tab .el-menu-item, .dataset-tab .el-submenu__title {
+        height: 40px !important;
+        line-height: 40px !important;
+    }
+
+    .dataset-table {
+        margin-bottom: 20px;
+    }
+</style>
+<div id="app">
+    <div class="content">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon"><img src="/static/images/label.svg"></div>
+                <div class="logo-text">关键词标注</div>
+            </div>
+            <div class="user-info">
+                欢迎回来，{$username}!&nbsp;
+                <el-button size="mini" type="warning" round plain @click="onLogoutClick"
+                >注销
+                </el-button>
+            </div>
+        </div>
+
+        <el-row :gutter="12" class="statics-info">
+            <el-col :span="8">
+                <el-card shadow="hover">
+                    <div class="statics-card-title">我今日标注</div>
+                    <div class="statics-card-count">{$today_count}</div>
+                </el-card>
+            </el-col>
+            <el-col :span="8">
+                <el-card shadow="hover">
+                    <div class="statics-card-title">我总标注</div>
+                    <div class="statics-card-count">{$total_count}</div>
+                </el-card>
+            </el-col>
+            <el-col :span="8">
+                <el-card shadow="hover">
+                    <div class="statics-card-title">团队标注进度</div>
+                    <div class="statics-card-count">{$team_count}
+                        <span class="statics-card-count-total">/{$project_total}</span>
+                    </div>
+                </el-card>
+            </el-col>
+        </el-row>
+
+        <div class="dataset-info">
+            <el-menu :default-active="String(labeledTab + 1)" mode="horizontal" class="dataset-tab"
+                     @select="onDatasetTabSelect">
+                <el-menu-item index="1">待标注</el-menu-item>
+                <el-menu-item index="2">已标注</el-menu-item>
+            </el-menu>
+
+            <el-table
+                    v-loading="datasetLoading"
+                    class="dataset-table"
+                    :data="dataset"
+                    stripe
+                    style="width: 100%">
+                <el-table-column
+                        prop="id"
+                        label="#"
+                        width="50">
+                </el-table-column>
+                <el-table-column
+                        prop="content"
+                        label="文本内容"
+                        :formatter="formatDatasetContent"
+                >
+                </el-table-column>
+                <el-table-column
+                        prop="labeled"
+                        label="是否标记"
+                        width="100">
+                </el-table-column>
+                <el-table-column
+                        prop="username"
+                        label="标记员"
+                        width="180">
+                </el-table-column>
+                <el-table-column
+                        prop="label_time"
+                        label="标记时间"
+                        width="180">
+                </el-table-column>
+                <el-table-column
+                        label="操作"
+                        width="80">
+                    <template slot-scope="scope">
+                        <el-button
+                                @click.native.prevent="onDatasetItemEditClick(scope.$index, dataset)"
+                                type="text"
+                                size="small">
+                            编辑
+                        </el-button>
+                    </template>
+                </el-table-column>
+            </el-table>
+            <el-pagination
+                    class="dataset-pagination"
+                    background
+                    layout="prev, pager, next"
+                    :disabled="datasetLoading"
+                    :current-page="page"
+                    :page-count="totalPage"
+                    @current-change="onDatasetCurrentPageChange"
+            >
+            </el-pagination>
+        </div>
+        <div class="footer">
+            <div class="copyright-claim">Copyright © 2019-2020 Dizy. All Rights Reserved. 曾子洋 版权所有</div>
+        </div>
+    </div>
+</div>
+<script>
+    let app = new Vue({
+        el: '#app',
+        data: {
+            labeledTab: 0,
+            datasetLoading: true,
+            page: 1,
+            totalPage: 0,
+            dataset: []
+        },
+        mounted() {
+            this.fetchDatasetList()
+        },
+        methods: {
+            onLogoutClick() {
+                $.get('/api/user/logout', (data) => {
+                    if (!data) {
+                        this.$message.error('网络出错误啦');
+                        return;
+                    }
+
+                    if (data.code !== 200) {
+                        this.$message.error(data.message);
+                        return;
+                    }
+
+                    this.$message({
+                        message: '注销成功，跳转中...',
+                        type: 'success'
+                    });
+
+                    setTimeout(() => {
+                        window.location.href = '{:url(\'index/user/login\')}';
+                    }, 1000)
+                })
+            },
+            onDatasetTabSelect(index) {
+                this.labeledTab = index - 1;
+                this.page = 1;
+                this.fetchDatasetList();
+            },
+            onDatasetCurrentPageChange(page) {
+                this.page = page;
+                this.fetchDatasetList();
+            },
+            onDatasetItemEditClick(index, dataset) {
+                let item = dataset[index];
+
+                // window.open(`{:url('index/label/labeling')}?id=${item.id}`);
+                window.location.href = `{:url('index/label/labeling')}?id=${item.id}`;
+            },
+            formatDatasetContent(item) {
+                let {content} = item;
+
+                if (content.length > 30) {
+                    return content.slice(0, 30) + '...';
+                }
+
+                return content;
+            },
+            fetchDatasetList(callback) {
+                this.datasetLoading = true;
+                $.get(`/api/dataset/getList?page=${this.page}&labeled=${this.labeledTab}`, (data) => {
+                    let callCallback = () => {
+                        this.datasetLoading = false;
+                        if (callback) {
+                            callback();
+                        }
+                    }
+
+                    if (!data) {
+                        this.$message.error('网络出错误啦');
+                        callCallback();
+                        return;
+                    }
+
+                    if (data.code !== 200) {
+                        this.$message.error(data.message);
+                        callCallback();
+                        return;
+                    }
+
+                    let {list, total_page} = data.data;
+
+                    if (total_page) {
+                        this.totalPage = total_page;
+                    }
+
+                    let dataset = [];
+
+                    for (let item of list) {
+                        let {id, content, labels, user, label_time} = item;
+
+                        if (labels) {
+                            let date = label_time ? new Date(label_time * 1000) : undefined;
+
+                            dataset.push({
+                                id,
+                                content,
+                                labeled: '√',
+                                username: user.username,
+                                label_time: date ? `${date.toLocaleDateString()} ${date.toLocaleTimeString()}` : '-'
+                            })
+                        } else {
+                            dataset.push({
+                                id,
+                                content,
+                                labeled: '×'
+                            })
+                        }
+                    }
+
+                    this.dataset = dataset;
+                    callCallback();
+                })
+            }
+        }
+    });
+</script>
+{include file="common/footer" /}

@@ -1,0 +1,481 @@
+{include file="common/header" title="$title" /}
+
+<style>
+    .content {
+        height: 100vh;
+    }
+
+    .header .status-tag {
+        margin-left: 10px;
+        height: 25px;
+        line-height: 23px;
+    }
+
+    .labeling-desk {
+        font-size: 35px;
+        line-height: 60px;
+        text-decoration: underline;
+        text-decoration-color: #EBEEF5;
+    }
+
+    .labeling-desk span {
+        border: 2px solid transparent;
+    }
+
+    .labeling-desk span.selected {
+        border: 2px solid #409EFF;
+    }
+
+    .labeling-desk span.segment:hover {
+        background: #F2F6FC;
+    }
+
+    .labeling-menu {
+        width: 250px;
+        background-color: #fff;
+        position: absolute;
+        border-radius: 7px;
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+
+    .meta-label {
+        max-height: 200px;
+        overflow: auto;
+    }
+
+    .meta-label ul {
+        padding: 10px 0;
+        list-style: none;
+        margin-block-start: inherit;
+        margin-block-end: inherit;
+        padding-inline-start: inherit;
+    }
+
+    .meta-label ul li {
+        cursor: pointer;
+    }
+
+    .meta-label ul li:hover {
+        background-color: #F2F6FC;
+    }
+
+    .meta-label-item {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .meta-label-item-left {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        margin-left: 10px;
+    }
+
+    .meta-label-item-left span.dot {
+        display: block;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background-color: #868686;
+        margin-left: 10px;
+        margin-right: 5px;
+    }
+
+    .meta-label-item-left span.label {
+        padding: 7px;
+    }
+
+    .meta-label-item-right {
+        margin-right: 20px;
+    }
+
+    .meta-label-item-right i.selected {
+        color: #409EFF;
+    }
+
+    .meta-label-delete {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 10px;
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        background-color: rgba(245, 108, 108, 0.07);
+        color: #ec4f52;
+        cursor: pointer;
+    }
+
+    .meta-label-delete:hover {
+        background-color: #ec4f52;
+        color: #fff;
+    }
+</style>
+<div id="app">
+    <div class="content" @click="onContentClick">
+        <div class="header">
+            <div class="header-left">
+                <el-page-header @back="goBack" content="标注文本#{$item_id}">
+                </el-page-header>
+                <el-tag class="status-tag" type="{$labeled ? 'success' : 'warning'}">{$labeled ? '已标记' : '未标记'}</el-tag>
+            </div>
+            <div class="header-right">
+                <el-button type="primary" icon="el-icon-check" size="medium" round @click="onFinishClick">完成，下一个
+                </el-button>
+            </div>
+        </div>
+
+        <div class="labeling-desk" @mouseup="onLabelingDeskMouseUp" ref="labelingDesk"><span
+                v-for="item in contentSegments"
+                :class="item.type + ' ' + (item === selectedSegment ? 'selected' : '')"
+                :style="item.type === 'label' ? ('background-color:' + getLabelItemColor(item.labelId)) : ''"
+                @click="onSegmentClick(item, $event)">{{item.segment}}</span>
+        </div>
+
+        <div class="labeling-menu" v-if="selectedSegment !== undefined" @click="onLabelingMenuClick"
+             :style="'left:' + labelingMenuPosition.x + 'px; top:' +labelingMenuPosition.y + 'px;'">
+            <div class="meta-label">
+                <ul>
+                    <li class="meta-label-item" v-for="item in metaLabels" @click="onMetaLabelItemSelect(item)"
+                        :style="'labelId' in selectedSegment && selectedSegment.labelId === item.id ? 'background-color: rgb(240, 245, 255);' : ''">
+                        <div class="meta-label-item-left"><span class="dot"
+                                                                :style="'background-color: '+(item.color ? item.color : '#868686')"></span><span
+                                class="label">{{item.label}}</span></div>
+                        <div class="meta-label-item-right"><i class="el-icon-check selected" v-if="'labelId' in selectedSegment && selectedSegment.labelId ===
+                            item.id"></i>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div class="meta-label-delete" @click="onDeleteMetaLabelItemClick">删除标注</div>
+        </div>
+
+
+    </div>
+</div>
+<script>
+    let passDownData = JSON.parse('{php}echo addSlashes($data);{/php}');
+    let initialContentSegments = [];
+    let initialLabels = JSON.parse(passDownData.labels);
+
+    {
+        let {content, content_segments} = passDownData;
+
+        let startSearchPosition = 0;
+        let lastSegment = undefined;
+
+        for (let segment of content_segments) {
+            let position = content.indexOf(segment, startSearchPosition);
+
+            if (position >= 0) {
+                if (!lastSegment) {
+                    initialContentSegments.push({
+                        position: 0,
+                        length: position,
+                        segment: content.slice(0, position)
+                    })
+                } else if (position > startSearchPosition) {
+                    initialContentSegments.push({
+                        position: startSearchPosition,
+                        length: position - startSearchPosition,
+                        segment: content.slice(startSearchPosition, position)
+                    })
+                }
+
+                initialContentSegments.push({
+                    position,
+                    length: segment.length,
+                    segment: segment
+                })
+            } else {
+                if (startSearchPosition <= content.length) {
+                    initialContentSegments.push({
+                        position: startSearchPosition,
+                        length: content.length - startSearchPosition,
+                        segment: content.slice(startSearchPosition, content.length)
+                    })
+                }
+                break;
+            }
+
+            startSearchPosition = position + segment.length;
+            lastSegment = segment;
+        }
+
+        console.log(content_segments)
+    }
+
+    function getContentSegments(labels) {
+        let segments = [];
+
+        if (!labels || !('type' in labels) || labels.type === 'invalid' || !labels.list || !Array.isArray(labels.list) || !labels.list.length) {
+            for (let item of initialContentSegments) {
+                let {position, length, segment} = item;
+
+                segments.push({
+                    type: 'segment',
+                    position,
+                    length,
+                    segment
+                })
+            }
+        } else {
+            let initialSegmentIndex = 0;
+
+            function getNextInitialSegment() {
+                if (initialSegmentIndex >= initialContentSegments.length) {
+                    return undefined;
+                }
+
+                return initialContentSegments[initialSegmentIndex];
+            }
+
+            let lastLabelItem = undefined;
+
+            let list = labels.list.sort((a, b) => {
+                return a.position - b.position;
+            });
+
+            for (let labelItem of list) {
+                let {labelId, position, length, segment} = labelItem;
+
+                if (lastLabelItem) {
+                    let initialSegment = getNextInitialSegment();
+
+                    while (initialSegment && initialSegment.position < lastLabelItem.position + lastLabelItem.length - 1) {
+                        initialSegmentIndex++;
+                        initialSegment = getNextInitialSegment();
+                    }
+                }
+
+                let initialSegment = getNextInitialSegment();
+
+                while (initialSegment && initialSegment.position + initialSegment.length - 1 < position) {
+                    segments.push({
+                        type: 'segment',
+                        position: initialSegment.position,
+                        length: initialSegment.length,
+                        segment: initialSegment.segment
+                    });
+
+                    initialSegmentIndex++;
+                    initialSegment = getNextInitialSegment();
+                }
+
+                segments.push({
+                    type: 'label',
+                    labelId,
+                    position,
+                    length,
+                    segment
+                });
+
+                lastLabelItem = labelItem;
+            }
+
+            let initialSegment = getNextInitialSegment();
+
+            while (initialSegment && initialSegment.position < lastLabelItem.position + lastLabelItem.length - 1) {
+                initialSegmentIndex++;
+
+                initialSegment = getNextInitialSegment();
+            }
+
+            initialSegment = getNextInitialSegment();
+
+            while (initialSegment) {
+                segments.push({
+                    type: 'segment',
+                    position: initialSegment.position,
+                    length: initialSegment.length,
+                    segment: initialSegment.segment
+                });
+
+                initialSegmentIndex++;
+                initialSegment = getNextInitialSegment();
+            }
+        }
+
+        return segments;
+    }
+
+    let app = new Vue({
+        el: '#app',
+        data: {
+            content: passDownData.content,
+            labels: initialLabels,
+            metaLabels: passDownData.metaLabels,
+            selectedSegment: undefined,
+            labelingMenuPosition: {
+                x: 200,
+                y: 200
+            }
+        },
+        computed: {
+            contentSegments() {
+                return getContentSegments(this.labels);
+            }
+        },
+        methods: {
+            goBack() {
+                window.location.href = '{:url(\'index/label/home\')}';
+            },
+            onLabelingDeskMouseUp(event) {
+                let selection = rangy.getSelection();
+
+                if (selection.rangeCount < 0) {
+                    return;
+                }
+
+                let range = selection.getRangeAt(0);
+                let offsets = range.toCharacterRange(this.$refs.labelingDesk);
+
+                if (offsets.end - offsets.start <= 0) {
+                    return;
+                }
+
+                setTimeout(() => {
+                    this.selectedSegment = {
+                        type: 'selection',
+                        position: offsets.start,
+                        length: offsets.end - offsets.start,
+                        segment: this.content.slice(offsets.start, offsets.end)
+                    };
+
+                    let x = event.clientX;
+                    let y = event.clientY;
+                    this.labelingMenuPosition.x = x - 50;
+                    this.labelingMenuPosition.y = y + 45;
+                }, 200)
+            },
+            onSegmentClick(item, event) {
+                event.stopPropagation();
+
+                let spanElement = event.target;
+
+                let rect = spanElement.getBoundingClientRect();
+
+                this.labelingMenuPosition.x = rect.x;
+                this.labelingMenuPosition.y = rect.y + 55;
+
+                this.selectedSegment = item;
+            },
+            onMetaLabelItemSelect(item) {
+                if (this.selectedSegment.type === 'segment') {
+                    let {position, length, segment} = this.selectedSegment;
+
+                    if (!this.labels) {
+                        this.labels = {
+                            type: 'valid',
+                            list: []
+                        }
+                    }
+
+                    console.log({
+                        labelId: item.id,
+                        position,
+                        length,
+                        segment
+                    })
+
+                    this.labels.list.push({
+                        labelId: item.id,
+                        position,
+                        length,
+                        segment
+                    })
+                } else if (this.selectedSegment.type === 'label') {
+                    let {position, length, segment, labelId} = this.selectedSegment;
+
+                    if (!this.labels.list || !Array.isArray(this.labels.list)) {
+                        return;
+                    }
+
+                    let label = this.labels.list.find(label => label.labelId === labelId && label.position === position && label.length === length);
+
+                    if (label) {
+                        label.labelId = item.id;
+                    }
+                } else if (this.selectedSegment.type === 'selection') {
+                    let {position, length, segment} = this.selectedSegment;
+
+                    if (!this.labels) {
+                        this.labels = {
+                            type: 'valid',
+                            list: []
+                        }
+                    }
+
+                    this.labels.list.push({
+                        labelId: item.id,
+                        position,
+                        length,
+                        segment
+                    })
+                }
+
+                this.selectedSegment = undefined;
+            },
+            onDeleteMetaLabelItemClick() {
+                if (this.selectedSegment.type === 'label') {
+                    let {position, length, labelId} = this.selectedSegment;
+
+                    if (!this.labels.list || !Array.isArray(this.labels.list)) {
+                        return;
+                    }
+
+                    let index = this.labels.list.findIndex(label => label.labelId === labelId && label.position === position && label.length === length);
+
+                    this.labels.list.splice(index, 1);
+                }
+
+                this.selectedSegment = undefined;
+            },
+            onLabelingMenuClick(event) {
+                event.stopPropagation();
+            },
+            onContentClick() {
+                this.selectedSegment = undefined;
+            },
+            onFinishClick() {
+                $.post('{:url(\'api/dataset/label\')}', {
+                    item_id: {$item_id},
+                    labels: JSON.stringify(this.labels)
+                }, (data) => {
+                    if (!data) {
+                        this.$message.error('网络出错误啦');
+                        return;
+                    }
+
+                    if (data.code !== 200) {
+                        this.$message.error(data.message);
+                        return;
+                    }
+
+                    this.$message({
+                        message: '保存成功，跳转中...',
+                        type: 'success'
+                    });
+
+                    setTimeout(() => {
+                        window.location.href = '{:url(\'index/label/labeling\')}';
+                    }, 1000);
+                })
+            },
+            getLabelItemColor(labelId) {
+                let metaLabel = this.metaLabels.find((metaLabel) => metaLabel.id === labelId);
+
+                if (!metaLabel || !metaLabel.color) {
+                    return '#868686';
+                }
+
+                return metaLabel.color;
+            }
+        }
+    });
+</script>
+
+{include file="common/footer" /}
